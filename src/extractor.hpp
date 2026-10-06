@@ -8,7 +8,7 @@
 struct ExtractionOptions {
     std::string url;
     std::string user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36";
-    uint32_t timeout_ms = 15000;
+    uint32_t timeout_ms = 20000;
     bool verbose = false;
 };
 

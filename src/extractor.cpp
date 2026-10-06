@@ -384,7 +384,7 @@ static std::atomic<uint64_t> g_request_id{0};
 
 struct ServerState {
     std::string default_user_agent;
-    uint32_t default_timeout_ms = 15000;
+    uint32_t default_timeout_ms = 20000;
     size_t max_concurrency = 4;
     bool verbose = false;
 

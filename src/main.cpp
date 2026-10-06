@@ -14,7 +14,7 @@ static void print_usage(const char* prog) {
               << "Lightweight headless WPE WebKit concurrent HLS URL extractor.\n\n"
               << "Options:\n"
               << "  --user-agent <string>       Custom User-Agent header (default: Mozilla/5.0 ...)\n"
-              << "  --timeout <ms>              Timeout in milliseconds (default: 15000)\n"
+              << "  --timeout <ms>              Timeout in milliseconds (default: 20000)\n"
               << "  -c, -j, --concurrency <N>   Max concurrent extraction jobs (default: 4)\n"
               << "  -f, --file <path>           Read URLs from file (one per line)\n"
               << "  --stdin                     Read URLs from standard input\n"
