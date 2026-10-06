@@ -22,7 +22,7 @@ struct ExtractionResult {
 struct MultiExtractionOptions {
     std::vector<std::string> urls;
     std::string user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36";
-    uint32_t timeout_ms = 15000;
+    uint32_t timeout_ms = 20000;
     size_t max_concurrency = 4;
     bool verbose = false;
     bool output_json = false;
@@ -38,6 +38,7 @@ bool is_valid_http_url(const std::string& url);
 
 // Normalizes MIME type (lowercase, strip parameters after ';') and checks for HLS
 bool is_hls_mime_type(const char* mime_type);
+bool is_hls_url(const char* url);
 std::string normalize_mime(const char* mime_type);
 
 // Helper to escape strings in JSON output

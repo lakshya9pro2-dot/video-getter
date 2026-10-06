@@ -362,10 +362,20 @@ void BrowserEngine::on_resource_load_started(WebKitWebView* /*web_view*/, WebKit
     auto* self = static_cast<BrowserEngine*>(user_data);
     if (!self || self->finished_) return;
 
+    const char* uri = request ? webkit_uri_request_get_uri(request) : nullptr;
+
     if (self->verbose_ && request) {
-        const char* uri = webkit_uri_request_get_uri(request);
         const char* method = webkit_uri_request_get_http_method(request);
         std::cerr << "[REQUEST] " << (method ? method : "GET") << " " << (uri ? uri : "") << std::endl;
+    }
+
+    // Fast path: detect HLS from the requested URL itself. Do not wait for
+    // the response MIME type because many streaming servers use a generic
+    // MIME type such as application/octet-stream for .m3u8 playlists.
+    if (uri && is_hls_url(uri)) {
+        app_log::info(std::string("HLS URL detected from request: ") + uri);
+        self->finish(true, uri, 0, "");
+        return;
     }
 
     g_signal_connect_data(

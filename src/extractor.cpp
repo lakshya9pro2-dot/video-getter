@@ -69,6 +69,25 @@ bool is_hls_mime_type(const char* mime_type) {
     return (norm == "application/vnd.apple.mpegurl" || norm == "application/x-mpegurl");
 }
 
+// Detect HLS playlists directly from the requested URL. Some servers return
+// non-standard MIME types (or application/octet-stream) for .m3u8 playlists,
+// so MIME-only detection can miss the stream and wait for the full timeout.
+bool is_hls_url(const char* url) {
+    if (!url || !*url) return false;
+
+    std::string value(url);
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+
+    // Normal playlist URL, including query strings such as .m3u8?token=...
+    if (value.find(".m3u8") != std::string::npos) return true;
+
+    // Some providers expose the playlist through a route/query without the
+    // conventional extension, e.g. /playlist?format=m3u8.
+    return value.find("m3u8") != std::string::npos;
+}
+
 std::string get_url_origin(const std::string& url) {
     if (url.empty()) return "";
 
