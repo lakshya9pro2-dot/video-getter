@@ -47,9 +47,20 @@ int main(int argc, char* argv[]) {
     bool read_stdin = false;
     bool json_output = false;
     size_t concurrency = 4;
+    const char* env_concurrency = std::getenv("CONCURRENCY");
+    if (env_concurrency && *env_concurrency) {
+        int c = std::atoi(env_concurrency);
+        if (c > 0) concurrency = static_cast<size_t>(c);
+    }
+
     ExtractionOptions options;
     bool server_mode = false;
     int server_port = 8080;
+    const char* env_port = std::getenv("PORT");
+    if (env_port && *env_port) {
+        int p = std::atoi(env_port);
+        if (p > 0) server_port = p;
+    }
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];

@@ -2,5 +2,15 @@ services:
   - type: web
     name: wpe-url-extractor
     runtime: docker
-    plan: free
+    plan: starter
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /health
+    envVars:
+      - key: CONCURRENCY
+        value: "2"
+      - key: WEBKIT_FORCE_SANDBOX
+        value: "0"
+      - key: LIBGL_ALWAYS_SOFTWARE
+        value: "1"

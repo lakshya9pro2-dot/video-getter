@@ -8,6 +8,7 @@
 #include <deque>
 #include <memory>
 #include <glib.h>
+#include <glib-unix.h>
 #include <libsoup/soup.h>
 
 std::string escape_json(const std::string& input) {
@@ -463,8 +464,16 @@ static void on_api_request(SoupServer* /*server*/,
                            gpointer user_data) {
     auto* state = static_cast<ServerState*>(user_data);
 
-    // Health / Status check endpoint
-    if (strcmp(path, "/status") == 0 || strcmp(path, "/health") == 0) {
+    // Lightweight Health Check endpoint (zero-cost, no browser execution)
+    if (strcmp(path, "/health") == 0) {
+        const char* json = "{\"status\":\"ok\"}\n";
+        soup_server_message_set_status(msg, SOUP_STATUS_OK, nullptr);
+        soup_server_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, json, strlen(json));
+        return;
+    }
+
+    // Detailed Status endpoint
+    if (strcmp(path, "/status") == 0) {
         std::string json = "{\n"
             "  \"status\": \"ok\",\n"
             "  \"active_jobs\": " + std::to_string(state->active_items.size()) + ",\n"
@@ -690,6 +699,26 @@ int run_http_server(int port,
               << " (max concurrency: " << state.max_concurrency << ")" << std::endl;
 
     GMainLoop* loop = g_main_loop_new(nullptr, FALSE);
+
+    // Graceful shutdown on SIGTERM and SIGINT (Docker stop / Ctrl+C)
+    g_unix_signal_add(SIGTERM, +[](gpointer user_data) -> gboolean {
+        auto* l = static_cast<GMainLoop*>(user_data);
+        if (l && g_main_loop_is_running(l)) {
+            std::cout << "\nReceived SIGTERM, shutting down gracefully..." << std::endl;
+            g_main_loop_quit(l);
+        }
+        return G_SOURCE_REMOVE;
+    }, loop);
+
+    g_unix_signal_add(SIGINT, +[](gpointer user_data) -> gboolean {
+        auto* l = static_cast<GMainLoop*>(user_data);
+        if (l && g_main_loop_is_running(l)) {
+            std::cout << "\nReceived SIGINT, shutting down gracefully..." << std::endl;
+            g_main_loop_quit(l);
+        }
+        return G_SOURCE_REMOVE;
+    }, loop);
+
     g_main_loop_run(loop);
 
     g_main_loop_unref(loop);

@@ -288,6 +288,19 @@ else
     exit 1
 fi
 
+# Test 13: Lightweight Health Check endpoint
+echo "-----------------------------------------"
+echo "TEST: HTTP API Health Check endpoint (/health)"
+HEALTH_RESP=$(curl -s "http://127.0.0.1:$API_PORT/health")
+echo "Health Response: $HEALTH_RESP"
+if [ "$HEALTH_RESP" = '{"status":"ok"}' ]; then
+    echo "HTTP API Health Test: PASS"
+else
+    echo "HTTP API Health Test: FAIL"
+    kill -9 $API_PID || true
+    exit 1
+fi
+
 kill -9 $API_PID 2>/dev/null || true
 
 echo "========================================="
