@@ -38,18 +38,28 @@ RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && \
 FROM debian:trixie-slim AS runner
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV WPE_BACKEND_LIBRARY=libWPEBackend-fdo-1.0.so.1
+# Disable WebKit's bubblewrap process sandbox (not allowed on Render's container runtime)
 ENV WEBKIT_FORCE_SANDBOX=0
 ENV WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+# Force software (CPU) rendering — no GPU available on Render
 ENV LIBGL_ALWAYS_SOFTWARE=1
+# Disable dma-buf compositor path; use SHM instead (dma-buf requires a real GPU)
+ENV WEBKIT_DISABLE_DMABUF_RENDERER=1
+ENV WPE_BACKEND_LIBRARY=libWPEBackend-fdo-1.0.so.1
 
-# Install only runtime shared libraries (no compilers/headers)
+# Install runtime shared libraries
+# GL/EGL packages are required: WPEWebKit's GPU process dlopen-loads libGLESv2.so.2
+# even in SHM/software mode. libgl1-mesa-dri provides the swrast software driver
+# that LIBGL_ALWAYS_SOFTWARE=1 routes to.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libwpewebkit-2.0-1 \
     libwpebackend-fdo-1.0-1 \
     libwpe-1.0-1 \
     libsoup-3.0-0 \
     libglib2.0-0t64 \
+    libgles2 \
+    libegl1 \
+    libgl1-mesa-dri \
     ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/* \
