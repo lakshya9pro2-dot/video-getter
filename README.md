@@ -380,3 +380,22 @@ Look for:
 ### 3. Mesa / GPU DRI warnings on headless servers
 - **Cause**: Mesa tries to probe for GPU hardware drivers (`/dev/dri`).
 - **Solution**: The application defaults to `LIBGL_ALWAYS_SOFTWARE=1`. Warnings like `failed to get driver name for fd -1` are harmless and handled cleanly by the offscreen SHM backend.
+
+## Logging
+
+The server now emits timestamped logs to stderr, which are visible in Render/container logs.
+
+Log levels are controlled with `LOG_LEVEL`:
+
+- `error` — errors only
+- `warn` — warnings and errors
+- `info` — normal server/request/extraction lifecycle logs (default)
+- `debug` — extra diagnostic logs
+
+Example:
+
+```bash
+LOG_LEVEL=debug ./build/wpe-url-extractor --server 8080
+```
+
+Each HTTP request receives a request ID, making it easier to follow a request from the API through WPE/WebKit extraction and back to the response.

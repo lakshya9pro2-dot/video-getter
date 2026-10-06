@@ -10,6 +10,8 @@ services:
     envVars:
       - key: CONCURRENCY
         value: "2"
+      - key: LOG_LEVEL
+        value: "info"
       - key: WEBKIT_FORCE_SANDBOX
         value: "0"
       - key: WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS

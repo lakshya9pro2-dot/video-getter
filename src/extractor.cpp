@@ -1,5 +1,9 @@
 #include "extractor.hpp"
 #include "browser.hpp"
+#include "logger.hpp"
+
+#include <atomic>
+#include <chrono>
 
 #include <iostream>
 #include <algorithm>
@@ -123,10 +127,13 @@ bool is_valid_http_url(const std::string& url) {
 
 ExtractionResult run_extraction(const ExtractionOptions& options) {
     ExtractionResult result;
+    const auto started = std::chrono::steady_clock::now();
+    app_log::info("Extraction requested: " + options.url);
 
     if (!is_valid_http_url(options.url)) {
         result.exit_code = 2; // Invalid input
         result.error_message = "Invalid URL: only http:// and https:// schemes are supported.";
+        app_log::warn("Rejected invalid URL: " + options.url);
         return result;
     }
 
@@ -154,6 +161,8 @@ ExtractionResult run_extraction(const ExtractionOptions& options) {
 
     browser.load_url(options.url, options.user_agent, options.timeout_ms, options.verbose);
 
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+    app_log::info("Extraction request completed in " + std::to_string(elapsed) + " ms: " + options.url);
     return result;
 }
 
@@ -371,6 +380,8 @@ static JsonExtractRequest parse_json_request(const std::string& json) {
     return req;
 }
 
+static std::atomic<uint64_t> g_request_id{0};
+
 struct ServerState {
     std::string default_user_agent;
     uint32_t default_timeout_ms = 15000;
@@ -378,6 +389,7 @@ struct ServerState {
     bool verbose = false;
 
     struct Task {
+        uint64_t request_id = 0;
         std::string url;
         std::string user_agent;
         uint32_t timeout_ms;
@@ -401,12 +413,14 @@ struct ServerState {
         while (active_items.size() < max_concurrency && !pending_tasks.empty()) {
             Task task = std::move(pending_tasks.front());
             pending_tasks.pop_front();
+            app_log::info("Starting queued request #" + std::to_string(task.request_id) + " url=" + task.url);
 
             if (!is_valid_http_url(task.url)) {
                 ExtractionResult err;
                 err.found = false;
                 err.exit_code = 2;
                 err.error_message = "Invalid URL: only http:// and https:// schemes are supported.";
+                app_log::warn("Request #" + std::to_string(task.request_id) + " rejected: invalid URL");
                 task.on_done(err);
                 continue;
             }
@@ -435,6 +449,7 @@ struct ServerState {
                     res.exit_code = exit_code;
                     res.error_message = err_msg;
 
+                    app_log::info("Request completed: found=" + std::string(found ? "true" : "false") + " exit_code=" + std::to_string(exit_code) + (err_msg.empty() ? "" : " error=" + err_msg));
                     on_done(res);
 
                     g_idle_add(+[](gpointer data) -> gboolean {
@@ -463,12 +478,16 @@ static void on_api_request(SoupServer* /*server*/,
                            GHashTable* query,
                            gpointer user_data) {
     auto* state = static_cast<ServerState*>(user_data);
+    const uint64_t request_id = ++g_request_id;
+    const char* method = soup_server_message_get_method(msg);
+    app_log::info("HTTP request #" + std::to_string(request_id) + " " + (method ? method : "UNKNOWN") + " " + (path ? path : ""));
 
     // Lightweight Health Check endpoint (zero-cost, no browser execution)
     if (strcmp(path, "/health") == 0) {
         const char* json = "{\"status\":\"ok\"}\n";
         soup_server_message_set_status(msg, SOUP_STATUS_OK, nullptr);
         soup_server_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, json, strlen(json));
+        app_log::debug("HTTP request #" + std::to_string(request_id) + " health OK");
         return;
     }
 
@@ -490,7 +509,7 @@ static void on_api_request(SoupServer* /*server*/,
         return;
     }
 
-    const char* http_method = soup_server_message_get_method(msg);
+    const char* http_method = method;
 
     if (strcmp(http_method, "GET") == 0) {
         const char* target_url = query ? static_cast<const char*>(g_hash_table_lookup(query, "url")) : nullptr;
@@ -516,11 +535,12 @@ static void on_api_request(SoupServer* /*server*/,
         g_object_ref(msg);
 
         state->enqueue({
+            request_id,
             target_url,
             ua,
             timeout,
             state->verbose,
-            [msg, origin](const ExtractionResult& res) {
+            [msg, origin, request_id](const ExtractionResult& res) {
                 std::string resp_json;
                 if (res.found) {
                     resp_json = "{\n"
@@ -545,6 +565,7 @@ static void on_api_request(SoupServer* /*server*/,
                     resp_json += "\n}\n";
                 }
 
+                app_log::info("HTTP request #" + std::to_string(request_id) + " responding success=" + std::string(res.found ? "true" : "false"));
                 soup_server_message_set_status(msg, SOUP_STATUS_OK, nullptr);
                 soup_server_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, resp_json.c_str(), resp_json.length());
                 soup_server_message_unpause(msg);
@@ -584,11 +605,12 @@ static void on_api_request(SoupServer* /*server*/,
             for (size_t i = 0; i < req.batch_urls.size(); ++i) {
                 holder->results[i].url = req.batch_urls[i];
                 state->enqueue({
+                    request_id,
                     req.batch_urls[i],
                     ua,
                     timeout,
                     state->verbose,
-                    [holder, i](const ExtractionResult& res) {
+                    [holder, i, request_id](const ExtractionResult& res) {
                         holder->results[i].result = res;
                         holder->completed++;
 
@@ -612,6 +634,7 @@ static void on_api_request(SoupServer* /*server*/,
                             }
                             json += "  ]\n}\n";
 
+                            app_log::info("HTTP request #" + std::to_string(request_id) + " batch completed items=" + std::to_string(holder->total));
                             soup_server_message_set_status(holder->msg, SOUP_STATUS_OK, nullptr);
                             soup_server_message_set_response(holder->msg, "application/json", SOUP_MEMORY_COPY, json.c_str(), json.length());
                             soup_server_message_unpause(holder->msg);
@@ -627,11 +650,12 @@ static void on_api_request(SoupServer* /*server*/,
             g_object_ref(msg);
 
             state->enqueue({
+                request_id,
                 req.single_url,
                 ua,
                 timeout,
                 state->verbose,
-                [msg, origin](const ExtractionResult& res) {
+                [msg, origin, request_id](const ExtractionResult& res) {
                     std::string resp_json;
                     if (res.found) {
                         resp_json = "{\n"
@@ -656,6 +680,7 @@ static void on_api_request(SoupServer* /*server*/,
                         resp_json += "\n}\n";
                     }
 
+                    app_log::info("HTTP request #" + std::to_string(request_id) + " POST response success=" + std::string(res.found ? "true" : "false"));
                     soup_server_message_set_status(msg, SOUP_STATUS_OK, nullptr);
                     soup_server_message_set_response(msg, "application/json", SOUP_MEMORY_COPY, resp_json.c_str(), resp_json.length());
                     soup_server_message_unpause(msg);
@@ -697,6 +722,7 @@ int run_http_server(int port,
 
     std::cout << "WPE URL Extractor API server listening on http://0.0.0.0:" << port
               << " (max concurrency: " << state.max_concurrency << ")" << std::endl;
+    app_log::info("Server started port=" + std::to_string(port) + " concurrency=" + std::to_string(state.max_concurrency) + " log_level=" + (std::getenv("LOG_LEVEL") ? std::getenv("LOG_LEVEL") : "info"));
 
     GMainLoop* loop = g_main_loop_new(nullptr, FALSE);
 
@@ -704,6 +730,7 @@ int run_http_server(int port,
     g_unix_signal_add(SIGTERM, +[](gpointer user_data) -> gboolean {
         auto* l = static_cast<GMainLoop*>(user_data);
         if (l && g_main_loop_is_running(l)) {
+            app_log::info("Received SIGTERM, shutting down gracefully");
             std::cout << "\nReceived SIGTERM, shutting down gracefully..." << std::endl;
             g_main_loop_quit(l);
         }
@@ -713,6 +740,7 @@ int run_http_server(int port,
     g_unix_signal_add(SIGINT, +[](gpointer user_data) -> gboolean {
         auto* l = static_cast<GMainLoop*>(user_data);
         if (l && g_main_loop_is_running(l)) {
+            app_log::info("Received SIGINT, shutting down gracefully");
             std::cout << "\nReceived SIGINT, shutting down gracefully..." << std::endl;
             g_main_loop_quit(l);
         }

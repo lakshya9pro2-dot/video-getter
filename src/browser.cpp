@@ -1,7 +1,11 @@
 #include "browser.hpp"
 #include "extractor.hpp"
+#include "logger.hpp"
+
+#include <chrono>
 
 #include <iostream>
+#include <sstream>
 #include <mutex>
 #include <unistd.h>
 #include <wpe/unstable/fdo-shm.h>
@@ -11,6 +15,7 @@ static bool g_wpe_init_success = false;
 static WebKitUserContentFilter* g_cached_filter = nullptr;
 
 static void global_wpe_init() {
+    app_log::info("Initializing WPE FDO backend");
     if (!g_getenv("WEBKIT_FORCE_SANDBOX")) {
         g_setenv("WEBKIT_FORCE_SANDBOX", "0", FALSE);
     }
@@ -20,12 +25,15 @@ static void global_wpe_init() {
 
     if (!wpe_loader_init("libWPEBackend-fdo-1.0.so") &&
         !wpe_loader_init("libWPEBackend-fdo-1.0.so.1")) {
+        app_log::error("Failed to load WPE FDO backend library");
         return;
     }
     if (!wpe_fdo_initialize_shm()) {
+        app_log::error("Failed to initialize WPE FDO SHM backend");
         return;
     }
     g_wpe_init_success = true;
+    app_log::info("WPE FDO backend initialized successfully");
 }
 
 static void compile_global_filter() {
@@ -106,8 +114,10 @@ void BrowserEngine::on_export_dmabuf_resource(void* data, struct wpe_view_backen
 }
 
 bool BrowserEngine::init() {
+    app_log::debug("Creating BrowserEngine");
     std::call_once(g_wpe_init_flag, global_wpe_init);
     if (!g_wpe_init_success) {
+        app_log::error("BrowserEngine initialization failed: WPE backend unavailable");
         if (error_callback_) {
             error_callback_(3, "Failed to initialize WPE FDO backend");
         }
@@ -124,6 +134,7 @@ bool BrowserEngine::init() {
 
     exportable_ = wpe_view_backend_exportable_fdo_create(&client, this, 800, 600);
     if (!exportable_) {
+        app_log::error("Failed to create WPE exportable backend");
         if (error_callback_) {
             error_callback_(3, "Failed to create WPE exportable backend");
         }
@@ -198,6 +209,7 @@ bool BrowserEngine::init() {
         nullptr));
 
     if (!web_view_) {
+        app_log::error("Failed to create WebKitWebView instance");
         if (error_callback_) {
             error_callback_(3, "Failed to create WebKitWebView instance");
         }
@@ -246,6 +258,13 @@ void BrowserEngine::setup_content_filters() {
 
 void BrowserEngine::finish(bool found, const std::string& matched_url, int exit_code, const std::string& error_msg) {
     if (finished_) return;
+
+    std::ostringstream log;
+    log << "Extraction finished: found=" << (found ? "true" : "false")
+        << " exit_code=" << exit_code;
+    if (found) log << " stream=" << matched_url;
+    if (!error_msg.empty()) log << " error=" << error_msg;
+    app_log::info(log.str());
     finished_ = true;
 
     if (timeout_source_id_ > 0) {
@@ -402,6 +421,7 @@ gboolean BrowserEngine::on_load_failed(WebKitWebView* /*web_view*/, WebKitLoadEv
                   << ": " << (error ? error->message : "unknown") << std::endl;
     }
 
+    app_log::error(std::string("Page load failed: ") + (error ? error->message : "unknown error") + " uri=" + (failing_uri ? failing_uri : "unknown"));
     self->finish(false, "", 4, error ? error->message : "Page or network error");
     return TRUE;
 }
@@ -415,6 +435,7 @@ gboolean BrowserEngine::on_load_failed_with_tls_errors(WebKitWebView* /*web_view
                   << (failing_uri ? failing_uri : "unknown") << std::endl;
     }
 
+    app_log::error("TLS certificate verification failed on " + std::string(failing_uri ? failing_uri : "unknown") + " flags=" + std::to_string(errors));
     self->finish(false, "", 4, "TLS certificate verification failed");
     return TRUE;
 }
@@ -423,6 +444,7 @@ void BrowserEngine::on_web_process_terminated(WebKitWebView* /*web_view*/, WebKi
     auto* self = static_cast<BrowserEngine*>(user_data);
     if (!self || self->finished_) return;
 
+    app_log::error("Web process terminated unexpectedly reason=" + std::to_string(reason));
     self->finish(false, "", 3, "Web process terminated unexpectedly (reason " + std::to_string(reason) + ")");
 }
 
@@ -431,6 +453,7 @@ gboolean BrowserEngine::on_timeout_cb(gpointer user_data) {
     if (!self) return G_SOURCE_REMOVE;
 
     self->timeout_source_id_ = 0;
+    app_log::warn("Extraction timeout reached");
     self->finish(false, "", 1, "Timeout reached without finding HLS URL");
     return G_SOURCE_REMOVE;
 }
@@ -442,6 +465,7 @@ bool BrowserEngine::start_async(const std::string& url,
                                 CompletionCallback completion_cb) {
     verbose_ = verbose;
     matched_ = false;
+    app_log::info("Starting extraction: " + url + " timeout_ms=" + std::to_string(timeout_ms));
     finished_ = false;
     matched_url_.clear();
     completion_callback_ = std::move(completion_cb);
