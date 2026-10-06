@@ -38,9 +38,10 @@ RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && \
 FROM debian:trixie-slim AS runner
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV WEBKIT_FORCE_SANDBOX=0
-ENV LIBGL_ALWAYS_SOFTWARE=1
 ENV WPE_BACKEND_LIBRARY=libWPEBackend-fdo-1.0.so.1
+ENV WEBKIT_FORCE_SANDBOX=0
+ENV WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+ENV LIBGL_ALWAYS_SOFTWARE=1
 
 # Install only runtime shared libraries (no compilers/headers)
 RUN apt-get update && apt-get install -y --no-install-recommends \
