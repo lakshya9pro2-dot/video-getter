@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HLS Player (Media Chrome + Hls.js)</title>
+
+  <!-- Media Chrome (Web Components Player UI) -->
+  <script type="module" src="https://cdn.jsdelivr.net/npm/media-chrome@1/+esm"></script>
+
+  <!-- Hls.js (Streaming Engine) -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.15/dist/hls.min.js"></script>
+
+  <style>
+    :root {
+      --bg-color: #0f1115;
+      --card-bg: #181b21;
+      --accent-color: #e50914; /* Netflix Red */
+      --accent-hover: #f40612;
+      --text-color: #ffffff;
+      --text-dim: #9aa0a6;
+      --border-color: #2b303c;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1040px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    header h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    header h1 span {
+      background: var(--accent-color);
+      color: #fff;
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .url-bar {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 8px 12px;
+      display: flex;
+      gap: 10px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    .url-bar input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text-color);
+      font-size: 0.95rem;
+      padding: 8px;
+    }
+
+    .url-bar input::placeholder {
+      color: var(--text-dim);
+    }
+
+    .url-bar button {
+      background: var(--accent-color);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 20px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: background 0.2s;
+      white-space: nowrap;
+    }
+
+    .url-bar button:hover {
+      background: var(--accent-hover);
+    }
+
+    /* Player Wrapper */
+    .player-wrapper {
+      position: relative;
+      width: 100%;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+      aspect-ratio: 16 / 9;
+    }
+
+    media-controller {
+      width: 100%;
+      height: 100%;
+      --media-control-background: rgba(15, 17, 21, 0.85);
+      --media-control-hover-background: rgba(30, 34, 42, 0.9);
+      --media-range-thumb-background: var(--accent-color);
+      --media-range-bar-color: var(--accent-color);
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    /* Status and Quick Links */
+    .status-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 14px 18px;
+      font-size: 0.88rem;
+      color: var(--text-dim);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .status-text {
+      color: #38bdf8;
+      font-weight: 500;
+      word-break: break-all;
+    }
+
+    .sample-links {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .sample-links a {
+      color: var(--text-dim);
+      text-decoration: underline;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+
+    .sample-links a:hover {
+      color: #fff;
+    }
+
+    .error-banner {
+      display: none;
+      background: rgba(229, 9, 20, 0.15);
+      border: 1px solid var(--accent-color);
+      color: #ff8085;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <header>
+      <h1>HLS Video Player <span>Media Chrome + Hls.js</span></h1>
+    </header>
+
+    <!-- URL Input Bar -->
+    <div class="url-bar">
+      <input type="text" id="streamUrl" placeholder="Paste your .m3u8 playlist URL here..." spellcheck="false" />
+      <button id="loadBtn">Load &amp; Play</button>
+    </div>
+
+    <!-- Error Alert Box -->
+    <div id="errorBanner" class="error-banner"></div>
+
+    <!-- Video Player -->
+    <div class="player-wrapper">
+      <media-controller defaultstreamtype="on-demand">
+        <video slot="media" id="videoElement" playsinline crossorigin="anonymous"></video>
+
+        <!-- Top Control Bar (Title) -->
+        <media-control-bar slot="top-chrome">
+          <span style="color: #fff; font-size: 0.9rem; font-weight: 500; padding: 10px 14px;" id="playerTitle"></span>
+        </media-control-bar>
+
+        <!-- Centered Buffering / Loading -->
+        <media-loading-indicator slot="centered-chrome"></media-loading-indicator>
+
+        <!-- Bottom Controls -->
+        <media-control-bar>
+          <media-play-button></media-play-button>
+          <media-seek-backward-button seekoffset="10"></media-seek-backward-button>
+          <media-seek-forward-button seekoffset="10"></media-seek-forward-button>
+          <media-mute-button></media-mute-button>
+          <media-volume-range></media-volume-range>
+          <media-time-display showduration></media-time-display>
+          <media-time-range></media-time-range>
+          <media-playback-rate-button></media-playback-rate-button>
+          <media-fullscreen-button></media-fullscreen-button>
+        </media-control-bar>
+      </media-controller>
+    </div>
+
+    <!-- Status & Preset Demos -->
+    <div class="status-card">
+      <div>Status: <span id="statusMessage" class="status-text">Ready</span></div>
+      <div class="sample-links">
+        <span>Sample test streams:</span>
+        <a onclick="loadPreset('https://cinesrc.st/api/playlist/Udkmoz2Myjcewcb6j5CjHtEQO38EcfUuZQebvjuVYxRlrbeAo7pr-7H_4P9qsJYkclkDOx6qHCCMC17-nk03PCpC5kpyjAcjMPhNc7UQxES0CWAzZoddbSQ01kXfZvyBUo6ngFfE6HCzRBdt8nlKQF6sReGXgg4qAx1a5lh7exmLFKlVs3cSvJQ310C7TQkvr6KvZ-6yijuAl3PIV0rlbTwzsYLpWw.m3u8', 'CineSRC Movie Stream')">CineSRC Stream</a>
+        <a onclick="loadPreset('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', 'Big Buck Bunny (Mux Sample)')">Big Buck Bunny</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const video = document.getElementById('videoElement');
+    const input = document.getElementById('streamUrl');
+    const loadBtn = document.getElementById('loadBtn');
+    const statusMsg = document.getElementById('statusMessage');
+    const errorBanner = document.getElementById('errorBanner');
+    const playerTitle = document.getElementById('playerTitle');
+
+    let hlsInstance = null;
+
+    function setStatus(text, isError = false) {
+      statusMsg.textContent = text;
+      statusMsg.style.color = isError ? '#ff8085' : '#38bdf8';
+    }
+
+    function showError(msg) {
+      errorBanner.textContent = msg;
+      errorBanner.style.display = 'block';
+    }
+
+    function clearError() {
+      errorBanner.textContent = '';
+      errorBanner.style.display = 'none';
+    }
+
+    function playStream(url, title = '') {
+      clearError();
+      if (!url || !url.trim()) {
+        showError('Please paste a valid stream URL.');
+        return;
+      }
+      url = url.trim();
+      input.value = url;
+      playerTitle.textContent = title || url.split('/').pop().split('?')[0];
+
+      setStatus('Loading playlist: ' + url);
+
+      // Clean up previous Hls instance
+      if (hlsInstance) {
+        hlsInstance.destroy();
+        hlsInstance = null;
+      }
+
+      // Check if Hls.js is supported (Desktop Chrome, Firefox, Edge, etc.)
+      if (Hls.isSupported()) {
+        hlsInstance = new Hls({
+          debug: false,
+          enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 90
+        });
+
+        hlsInstance.loadSource(url);
+        hlsInstance.attachMedia(video);
+
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, function(event, data) {
+          setStatus(`Streaming ready (${data.levels.length} quality levels detected)`);
+          video.play().catch(e => {
+            console.log('Autoplay prevented by browser policy (user gesture needed):', e);
+            setStatus('Click play to start video');
+          });
+        });
+
+        hlsInstance.on(Hls.Events.ERROR, function(event, data) {
+          console.warn('Hls.js event error:', data);
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                setStatus('Network / CORS error', true);
+                showError('Network error loading stream. (If accessing cross-origin, ensure the server sends CORS headers: Access-Control-Allow-Origin: *)');
+                hlsInstance.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                setStatus('Media decoding error, recovering...', true);
+                hlsInstance.recoverMediaError();
+                break;
+              default:
+                setStatus('Fatal error: ' + data.details, true);
+                showError('Fatal streaming error: ' + data.details);
+                hlsInstance.destroy();
+                break;
+            }
+          }
+        });
+
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Native HLS support (Safari on macOS / iOS)
+        video.src = url;
+        video.addEventListener('loadedmetadata', function() {
+          setStatus('Playing with native Apple HLS');
+          video.play().catch(e => console.log('Autoplay prevented:', e));
+        });
+      } else {
+        showError('Your browser does not support HLS streaming via MSE or native playback.');
+      }
+    }
+
+    function loadPreset(url, title) {
+      playStream(url, title);
+    }
+
+    loadBtn.addEventListener('click', () => {
+      playStream(input.value);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        playStream(input.value);
+      }
+    });
+
+    // Check for query parameter '?url=...'
+    window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      const urlParam = params.get('url');
+      if (urlParam) {
+        playStream(urlParam);
+      }
+    });
+  </script>
+</body>
+</html>
