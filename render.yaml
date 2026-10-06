@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: wpe-url-extractor
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
